@@ -37,4 +37,20 @@ public class ServerManager {
         }
         return null; // No healthy server found
     }
+    
+    public synchronized List<ServerNode> getAllServers() {
+        return new ArrayList<>(servers);
+    }
+    
+    public synchronized void addServer(String host, int port, int weight) {
+        ServerNode node = new ServerNode(host, port, weight);
+        servers.add(node);
+        rebuildWeightedList();
+    }
+    
+    public synchronized void removeServerByKey(String key) {
+        servers.removeIf(s -> (s.getHost() + ":" + s.getPort()).equals(key));
+        rebuildWeightedList();
+    }
+    
 }

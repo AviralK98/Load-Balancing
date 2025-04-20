@@ -20,6 +20,13 @@ public class LoadBalancer {
         HealthMonitor healthMonitor = new HealthMonitor(serverList);
         healthMonitor.start();
 
+        WebAdminServer admin = new WebAdminServer(serverManager);
+        try {
+            admin.start();
+        } catch (IOException e) {
+            System.err.println("Failed to start WebAdminServer: " + e.getMessage());
+        }
+
         try {
             loadBalancerSocket = new ServerSocket(8080);
             System.out.println("Load balancer listening on port 8080...");
