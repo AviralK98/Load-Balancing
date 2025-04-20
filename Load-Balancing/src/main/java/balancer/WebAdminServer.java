@@ -4,12 +4,10 @@ import com.sun.net.httpserver.*;
 import io.github.cdimascio.dotenv.Dotenv;
 import com.google.gson.Gson;
 
-
+import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -22,9 +20,9 @@ public class WebAdminServer {
 
     public WebAdminServer(ServerManager manager) {
         this.serverManager = manager;
-
+        System.out.println("CWD: " + System.getProperty("user.dir"));
         Dotenv dotenv = Dotenv.configure()
-                .directory(System.getProperty("user.dir"))
+                .directory("Load-Balancing/src/main/resources")
                 .ignoreIfMalformed()
                 .ignoreIfMissing()
                 .load();
@@ -77,14 +75,14 @@ public class WebAdminServer {
             exchange.sendResponseHeaders(405, -1);
             return;
         }
-    
+
         Map<String, Integer> perServer = serverManager.getRequestCounts();
         int total = serverManager.getTotalRequests();
-    
+
         String json = String.format("{\"total\":%d,\"perServer\":%s}", total, new Gson().toJson(perServer));
         sendJson(exchange, json);
     }
-    
+
     private boolean isAuthenticated(HttpExchange exchange) {
         List<String> cookies = exchange.getRequestHeaders().get("Cookie");
         if (cookies != null) {
@@ -102,7 +100,12 @@ public class WebAdminServer {
 
     private void handleLogin(HttpExchange exchange) throws IOException {
         if ("GET".equals(exchange.getRequestMethod())) {
-            byte[] html = Files.readAllBytes(Path.of("public/login.html"));
+            InputStream inputStream = getClass().getClassLoader().getResourceAsStream("webapp/login.html");
+            if (inputStream == null) {
+                exchange.sendResponseHeaders(404, -1);
+                return;
+            }
+            byte[] html = inputStream.readAllBytes();
             exchange.getResponseHeaders().add("Content-Type", "text/html");
             exchange.sendResponseHeaders(200, html.length);
             try (OutputStream os = exchange.getResponseBody()) {
@@ -140,11 +143,16 @@ public class WebAdminServer {
             return;
         }
 
-        byte[] content = Files.readAllBytes(Path.of("public/admin.html"));
+        InputStream inputStream = getClass().getClassLoader().getResourceAsStream("webapp/admin.html");
+        if (inputStream == null) {
+            exchange.sendResponseHeaders(404, -1);
+            return;
+        }
+        byte[] html = inputStream.readAllBytes();
         exchange.getResponseHeaders().add("Content-Type", "text/html");
-        exchange.sendResponseHeaders(200, content.length);
+        exchange.sendResponseHeaders(200, html.length);
         try (OutputStream os = exchange.getResponseBody()) {
-            os.write(content);
+            os.write(html);
         }
     }
 
