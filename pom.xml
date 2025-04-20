@@ -14,14 +14,12 @@
     </properties>
 
     <dependencies>
-        <!-- dotenv-java for .env file support -->
         <dependency>
             <groupId>io.github.cdimascio</groupId>
             <artifactId>dotenv-java</artifactId>
             <version>3.2.0</version>
         </dependency>
 
-        <!-- Gson for JSON serialization -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
@@ -30,6 +28,8 @@
     </dependencies>
 
     <build>
+        <finalName>java-load-balancer-shaded</finalName> 
+
         <sourceDirectory>Load-Balancing/src/main/java</sourceDirectory>
 
         <resources>
@@ -60,7 +60,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Exec plugin for dev-time execution -->
+            <!-- Exec plugin -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -70,13 +70,14 @@
                 </configuration>
             </plugin>
 
-            <!-- Shade plugin to create a fat/uber jar -->
+            <!-- Shade plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.2.4</version>
                 <executions>
                     <execution>
+                        <id>shade</id>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
