@@ -17,6 +17,8 @@ public class LoadBalancer {
         }
 
         ServerManager serverManager = new ServerManager(serverList);
+        HealthMonitor healthMonitor = new HealthMonitor(serverList);
+        healthMonitor.start();
 
         try {
             loadBalancerSocket = new ServerSocket(8080);
@@ -38,6 +40,11 @@ public class LoadBalancer {
             while (true) {
                 Socket clientSocket = loadBalancerSocket.accept();
                 ServerNode targetServer = serverManager.getNextServer();
+                if (targetServer == null) {
+                    System.err.println("No healthy backend servers available.");
+                    clientSocket.close();
+                    continue;
+                }
                 System.out.println("Forwarding to: " + targetServer);
                 new Thread(new ClientHandler(clientSocket, targetServer)).start();
             }
@@ -62,7 +69,10 @@ public class LoadBalancer {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split(":");
-                servers.add(new ServerNode(parts[0], Integer.parseInt(parts[1])));
+                String host = parts[0];
+                int port = Integer.parseInt(parts[1]);
+                int weight = parts.length >=3 ? Integer.parseInt(parts[2]) : 1;
+                servers.add(new ServerNode(host, port, weight));
             }
         }
         return servers;

@@ -1,2 +1,2 @@
-localhost:9001
-localhost:9002
+localhost:9001:3
+localhost:9002:1
