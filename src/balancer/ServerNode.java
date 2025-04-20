@@ -4,6 +4,7 @@ public class ServerNode {
     private final int port;
     private final int weight;
     private volatile boolean healthy = true;
+    private Process process;
 
     public ServerNode(String host, int port, int weight) {
         this.host = host;
@@ -11,6 +12,18 @@ public class ServerNode {
         this.weight = weight;
     }
 
+    public void setProcess(Process process) {
+        this.process = process;
+    }
+
+    public Process getProcess() {
+        return process;
+    }
+
+    public boolean isRunningLocally() {
+        return process != null && process.isAlive();
+    }
+    
     public String getHost() {
         return host;
     }

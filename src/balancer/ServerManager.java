@@ -37,9 +37,9 @@ public class ServerManager {
         }
         return null; // No healthy server found
     }
-    
+
     public synchronized List<ServerNode> getAllServers() {
-        return new ArrayList<>(servers);
+        return servers;
     }
     
     public synchronized void addServer(String host, int port, int weight) {

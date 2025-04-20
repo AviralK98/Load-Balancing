@@ -11,6 +11,8 @@ public class LoadBalancer {
         List<ServerNode> serverList;
         try {
             serverList = loadServers("servers.txt");
+            ServerManager serverManager = new ServerManager(serverList);
+            HealthMonitor healthMonitor = new HealthMonitor(serverManager.getAllServers());
         } catch (IOException e) {
             System.err.println("Failed to load server list: " + e.getMessage());
             return;
