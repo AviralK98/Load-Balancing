@@ -1,6 +1,7 @@
 package balancer;
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class ClientHandler implements Runnable {
     private Socket clientSocket;
@@ -10,6 +11,15 @@ public class ClientHandler implements Runnable {
         this.clientSocket = clientSocket;
         this.backendServer = backendServer;
     }
+    
+    private String getHeaderIgnoreCase(Map<String, String> headers, String key) {
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(key)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
 
     @Override
     public void run() {
@@ -17,44 +27,65 @@ public class ClientHandler implements Runnable {
             Socket serverSocket = new Socket(backendServer.getHost(), backendServer.getPort());
             BufferedReader clientReader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             BufferedWriter serverWriter = new BufferedWriter(new OutputStreamWriter(serverSocket.getOutputStream()));
-            InputStream serverIn = serverSocket.getInputStream();
+            BufferedReader serverReader = new BufferedReader(new InputStreamReader(serverSocket.getInputStream()));
             OutputStream clientOut = clientSocket.getOutputStream()
         ) {
             // Read HTTP request from client
-            StringBuilder requestBuilder = new StringBuilder();
+            StringBuilder request = new StringBuilder();
             String line;
             int contentLength = 0;
             boolean isPost = false;
 
             while (!(line = clientReader.readLine()).isEmpty()) {
-                requestBuilder.append(line).append("\r\n");
-                if (line.startsWith("Content-Length:")) {
-                    contentLength = Integer.parseInt(line.split(":")[1].trim());
-                }
-                if (line.startsWith("POST")) {
-                    isPost = true;
-                }
+                request.append(line).append("\r\n");
             }
-            requestBuilder.append("\r\n");
+            request.append("\r\n");
 
-            // Read POST body if applicable
-            char[] body = new char[contentLength];
-            if (isPost && contentLength > 0) {
-                clientReader.read(body, 0, contentLength);
-                requestBuilder.append(body);
-            }
-
-            // Send request to backend
-            serverWriter.write(requestBuilder.toString());
+            // Forward Request To Backend
+            serverWriter.write(request.toString());
             serverWriter.flush();
+            
+            // Read Status Line from Backend
+            String statusLine = serverReader.readLine();
+            if (statusLine == null) throw new IOException("Empty from backend server");
+            clientOut.write((statusLine + "\r\n").getBytes());
 
-            // Pipe backend response back to client
+            // Read Headers from Backend
+            Map<String, String> headers = new LinkedHashMap<>();
+            while(!(line = serverReader.readLine()).isEmpty()) {
+                int colon = line.indexOf(':');
+                if (colon != -1){
+                    String key = line.substring(0, colon).trim();
+                    String value = line.substring(colon + 1).trim();
+                    headers.put(key, value);
+                }
+            }
+            
+            // Log backend response headers
+            System.out.println("← " + backendServer + " responded: " + statusLine);
+            System.out.println("   Content-Type: " + getHeaderIgnoreCase(headers, "Content-Type"));
+            System.out.println("   Content-Length: " + headers.get("Content-Length"));
+
+            // Inject custom header
+            headers.put("X-Load-Balancer", "MyLoadBalancer JavaLB");
+
+            // Forward headers to client
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                String headerLine = entry.getKey() + ": " + entry.getValue() + "\r\n";
+                clientOut.write(headerLine.getBytes());
+            }
+            clientOut.write("\r\n".getBytes());
+
+            // Forward body
+            InputStream backendIn = serverSocket.getInputStream();
             byte[] buffer = new byte[8192];
             int bytesRead;
-            while ((bytesRead = serverIn.read(buffer)) != -1) {
+            while ((bytesRead = backendIn.read(buffer)) != -1) {
                 clientOut.write(buffer, 0, bytesRead);
             }
+
             clientOut.flush();
+
         } catch (IOException e) {
             System.err.println("Error handling client request: " + e.getMessage());
         } finally {
