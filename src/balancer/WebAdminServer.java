@@ -21,9 +21,17 @@ public class WebAdminServer {
     public WebAdminServer(ServerManager manager) {
         this.serverManager = manager;
 
-        Dotenv dotenv = Dotenv.configure().directory(".").ignoreIfMissing().load();
+        Dotenv dotenv = Dotenv.configure()
+                .directory(System.getProperty("user.dir"))
+                .ignoreIfMalformed()
+                .ignoreIfMissing()
+                .load();
+
         this.USERNAME = dotenv.get("LB_ADMIN_USER", "admin");
-        this.PASSWORD = dotenv.get("LB_ADMIN_PASS", "password");
+        this.PASSWORD = dotenv.get("LB_ADMIN_PASS", "password123");
+
+        System.out.println("Loaded USERNAME: " + USERNAME);
+        System.out.println("Loaded PASSWORD: " + PASSWORD);
 
         if (USERNAME.isEmpty() || PASSWORD.isEmpty()) {
             System.err.println("LB_ADMIN_USER and LB_ADMIN_PASS must be set in .env");
@@ -249,13 +257,12 @@ public class WebAdminServer {
                 }
             }
         }
-    
+
         // Clear the session cookie by setting expiry in the past
         exchange.getResponseHeaders().add("Set-Cookie", SESSION_COOKIE + "=; Path=/; Max-Age=0");
         exchange.getResponseHeaders().add("Location", "/login");
         exchange.sendResponseHeaders(302, -1);
     }
-    
 
     private void sendJson(HttpExchange exchange, String json) throws IOException {
         byte[] bytes = json.getBytes();
