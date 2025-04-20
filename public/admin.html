@@ -2,96 +2,99 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <title>Java Load Balancer Admin</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      padding: 1rem;
-    }
+    <meta charset="UTF-8">
+    <title>Java Load Balancer Admin</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 1rem;
+        }
 
-    h1 {
-      color: #2a72d4;
-    }
+        h1 {
+            color: #2a72d4;
+        }
 
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-bottom: 1rem;
-    }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
 
-    th,
-    td {
-      border: 1px solid #ccc;
-      padding: 0.5rem;
-      text-align: left;
-    }
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 0.5rem;
+            text-align: left;
+        }
 
-    tr.healthy {
-      background-color: #e6ffed;
-    }
+        tr.healthy {
+            background-color: #e6ffed;
+        }
 
-    tr.unhealthy {
-      background-color: #ffe6e6;
-    }
+        tr.unhealthy {
+            background-color: #ffe6e6;
+        }
 
-    form {
-      margin-bottom: 1rem;
-    }
+        form {
+            margin-bottom: 1rem;
+        }
 
-    input {
-      margin-right: 0.5rem;
-    }
-  </style>
+        input {
+            margin-right: 0.5rem;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
 
-  <h1>🖥️ Java Load Balancer Dashboard</h1>
+    <h1>🖥️ Java Load Balancer Dashboard</h1>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Host</th>
-        <th>Port</th>
-        <th>Weight</th>
-        <th>Status</th>
-        <th>Controls</th>
-      </tr>
-    </thead>
-    <tbody id="server-table">
-      <!-- Server rows go here -->
-    </tbody>
-  </table>
+    <table>
+        <thead>
+            <tr>
+                <th>Host</th>
+                <th>Port</th>
+                <th>Weight</th>
+                <th>Status</th>
+                <th>Controls</th>
+            </tr>
+        </thead>
+        <tbody id="server-table">
+            <!-- Server rows go here -->
+        </tbody>
+    </table>
 
-  <form action="/logout" method="POST" style="margin-bottom: 1rem;">
-    <button type="submit">🚪 Logout</button>
-  </form>
-  
-  <form id="add-form">
-    <h3>Add Backend</h3>
-    <input type="text" id="add-host" placeholder="localhost">
-    <input type="number" id="add-port" placeholder="9003">
-    <input type="number" id="add-weight" placeholder="1">
-    <button type="submit">Add Server</button>
-  </form>
+    <canvas id="requestChart" width="400" height="150"></canvas>
 
-  <form id="remove-form">
-    <h3>Remove Backend</h3>
-    <input type="text" id="remove-key" placeholder="localhost:9003">
-    <button type="submit">Remove Server</button>
-  </form>
+    <form action="/logout" method="POST" style="margin-bottom: 1rem;">
+        <button type="submit">🚪 Logout</button>
+    </form>
 
-  <script>
-    async function fetchStatus() {
-      const res = await fetch("http://localhost:7070/status");
-      const data = await res.json();
-      const table = document.getElementById("server-table");
-      table.innerHTML = "";
-      data.forEach(server => {
-        const row = document.createElement("tr");
-        row.className = server.healthy ? "healthy" : "unhealthy";
-        row.innerHTML = `
+    <form id="add-form">
+        <h3>Add Backend</h3>
+        <input type="text" id="add-host" placeholder="localhost">
+        <input type="number" id="add-port" placeholder="9003">
+        <input type="number" id="add-weight" placeholder="1">
+        <button type="submit">Add Server</button>
+    </form>
+
+    <form id="remove-form">
+        <h3>Remove Backend</h3>
+        <input type="text" id="remove-key" placeholder="localhost:9003">
+        <button type="submit">Remove Server</button>
+    </form>
+
+    <script>
+        async function fetchStatus() {
+            const res = await fetch("http://localhost:7070/status");
+            const data = await res.json();
+            const table = document.getElementById("server-table");
+            table.innerHTML = "";
+            data.forEach(server => {
+                const row = document.createElement("tr");
+                row.className = server.healthy ? "healthy" : "unhealthy";
+                row.innerHTML = `
           <td>${server.host}</td>
           <td>${server.port}</td>
           <td>${server.weight}</td>
@@ -101,51 +104,83 @@
             <button onclick="stopServer('${server.host}', ${server.port})">Stop</button>
           </td>
         `;
-        table.appendChild(row);
-      });
-    }
+                table.appendChild(row);
+            });
+        }
 
-    async function startServer(host, port) {
-      await fetch("http://localhost:7070/start", {
-        method: "POST",
-        body: `${host}:${port}`
-      });
-      fetchStatus();
-    }
+        const ctx = document.getElementById('requestChart').getContext('2d');
+        const requestChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Requests per Server',
+                    data: [],
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)'
+                }]
+            },
+            options: {
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
 
-    async function stopServer(host, port) {
-      await fetch("http://localhost:7070/stop", {
-        method: "POST",
-        body: `${host}:${port}`
-      });
-      fetchStatus();
-    }
+        async function updateMetrics() {
+            const res = await fetch("/metrics");
+            const data = await res.json();
+            const perServer = data.perServer;
 
-    document.getElementById("add-form").onsubmit = async (e) => {
-      e.preventDefault();
-      const host = document.getElementById("add-host").value;
-      const port = document.getElementById("add-port").value;
-      const weight = document.getElementById("add-weight").value;
-      await fetch("http://localhost:7070/add", {
-        method: "POST",
-        body: `${host}:${port}:${weight}`
-      });
-      fetchStatus();
-    };
+            requestChart.data.labels = Object.keys(perServer);
+            requestChart.data.datasets[0].data = Object.values(perServer);
+            requestChart.update();
+        }
 
-    document.getElementById("remove-form").onsubmit = async (e) => {
-      e.preventDefault();
-      const key = document.getElementById("remove-key").value;
-      await fetch("http://localhost:7070/remove", {
-        method: "POST",
-        body: key
-      });
-      fetchStatus();
-    };
+        setInterval(updateMetrics, 3000);
+        updateMetrics();
 
-    fetchStatus();
-    setInterval(fetchStatus, 5000);
-  </script>
+
+        async function startServer(host, port) {
+            await fetch("http://localhost:7070/start", {
+                method: "POST",
+                body: `${host}:${port}`
+            });
+            fetchStatus();
+        }
+
+        async function stopServer(host, port) {
+            await fetch("http://localhost:7070/stop", {
+                method: "POST",
+                body: `${host}:${port}`
+            });
+            fetchStatus();
+        }
+
+        document.getElementById("add-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const host = document.getElementById("add-host").value;
+            const port = document.getElementById("add-port").value;
+            const weight = document.getElementById("add-weight").value;
+            await fetch("http://localhost:7070/add", {
+                method: "POST",
+                body: `${host}:${port}:${weight}`
+            });
+            fetchStatus();
+        };
+
+        document.getElementById("remove-form").onsubmit = async (e) => {
+            e.preventDefault();
+            const key = document.getElementById("remove-key").value;
+            await fetch("http://localhost:7070/remove", {
+                method: "POST",
+                body: key
+            });
+            fetchStatus();
+        };
+
+        fetchStatus();
+        setInterval(fetchStatus, 5000);
+    </script>
 </body>
 
 </html>

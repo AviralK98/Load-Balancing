@@ -57,6 +57,7 @@ public class LoadBalancer {
             while (true) {
                 Socket clientSocket = loadBalancerSocket.accept();
                 ServerNode targetServer = serverManager.getNextServer();
+                serverManager.recordRequest(targetServer);
                 if (targetServer == null) {
                     System.err.println("No healthy backend servers available.");
                     clientSocket.close();

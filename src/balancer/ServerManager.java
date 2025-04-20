@@ -1,12 +1,16 @@
 package balancer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ServerManager {
     private final List<ServerNode> servers;
     private final List<ServerNode>  weightedList = new ArrayList<>();
     private final AtomicInteger index = new AtomicInteger(0);
+    private int totalRequests = 0;
+    private final Map<String, Integer> requestCounts = new HashMap<>();
 
     public ServerManager(List<ServerNode> servers) {
         this.servers = servers;
@@ -42,6 +46,20 @@ public class ServerManager {
         return servers;
     }
     
+    public synchronized void recordRequest(ServerNode node) {
+        totalRequests++;
+        String key = node.getHost() + ":" + node.getPort();
+        requestCounts.put(key, requestCounts.getOrDefault(key, 0) + 1);
+    }
+
+    public int getTotalRequests() {
+        return totalRequests;
+    }
+
+    public Map<String, Integer> getRequestCounts() {
+        return new HashMap<>(requestCounts);
+    }
+
     public synchronized void addServer(String host, int port, int weight) {
         ServerNode node = new ServerNode(host, port, weight);
         servers.add(node);

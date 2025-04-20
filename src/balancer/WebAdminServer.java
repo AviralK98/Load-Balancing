@@ -2,6 +2,8 @@ package balancer;
 
 import com.sun.net.httpserver.*;
 import io.github.cdimascio.dotenv.Dotenv;
+import com.google.gson.Gson;
+
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -50,6 +52,7 @@ public class WebAdminServer {
         httpServer.createContext("/remove", exchange -> requireAuth(this::handleRemove).handle(exchange));
         httpServer.createContext("/start", exchange -> requireAuth(this::handleStartServer).handle(exchange));
         httpServer.createContext("/stop", exchange -> requireAuth(this::handleStopServer).handle(exchange));
+        httpServer.createContext("/metrics", exchange -> requireAuth(this::handleMetrics).handle(exchange));
 
         httpServer.createContext("/", this::handleDashboard);
 
@@ -69,6 +72,19 @@ public class WebAdminServer {
         };
     }
 
+    private void handleMetrics(HttpExchange exchange) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(405, -1);
+            return;
+        }
+    
+        Map<String, Integer> perServer = serverManager.getRequestCounts();
+        int total = serverManager.getTotalRequests();
+    
+        String json = String.format("{\"total\":%d,\"perServer\":%s}", total, new Gson().toJson(perServer));
+        sendJson(exchange, json);
+    }
+    
     private boolean isAuthenticated(HttpExchange exchange) {
         List<String> cookies = exchange.getRequestHeaders().get("Cookie");
         if (cookies != null) {
