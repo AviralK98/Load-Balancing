@@ -1,0 +1,24 @@
+# Maven output directory
+/target/
+
+# IntelliJ / VS Code / Eclipse
+*.iml
+.idea/
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment and secret files
+.env
+
+# Backup files
+*.swp
+*~
