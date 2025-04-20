@@ -1,6 +1,7 @@
 package balancer;
 
 import com.sun.net.httpserver.*;
+import io.github.cdimascio.dotenv.Dotenv;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -8,20 +9,24 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.Base64;
 import java.util.stream.Collectors;
 
 public class WebAdminServer {
     private final ServerManager serverManager;
-
-    private static final String USERNAME = System.getenv("LB_ADMIN_USER");
-    private static final String PASSWORD = System.getenv("LB_ADMIN_PASS");
+    private final String USERNAME;
+    private final String PASSWORD;
+    private static final String SESSION_COOKIE = "LB_SESSION";
+    private final Map<String, String> sessions = new HashMap<>();
 
     public WebAdminServer(ServerManager manager) {
         this.serverManager = manager;
 
-        if (USERNAME == null || PASSWORD == null) {
-            System.err.println(" Environment variables LB_ADMIN_USER and LB_ADMIN_PASS must be set.");
+        Dotenv dotenv = Dotenv.configure().directory(".").ignoreIfMissing().load();
+        this.USERNAME = dotenv.get("LB_ADMIN_USER", "admin");
+        this.PASSWORD = dotenv.get("LB_ADMIN_PASS", "password");
+
+        if (USERNAME.isEmpty() || PASSWORD.isEmpty()) {
+            System.err.println("LB_ADMIN_USER and LB_ADMIN_PASS must be set in .env");
             System.exit(1);
         }
     }
@@ -29,53 +34,97 @@ public class WebAdminServer {
     public void start() throws IOException {
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(7070), 0);
 
-        httpServer.createContext("/status", this::handleStatus);
-        httpServer.createContext("/add", this::handleAdd);
-        httpServer.createContext("/remove", this::handleRemove);
-        httpServer.createContext("/start", this::handleStartServer);
-        httpServer.createContext("/stop", this::handleStopServer);
-        httpServer.createContext("/", exchange -> {
-            if (!isAuthenticated(exchange)) {
-                requireAuth(exchange);
-                return;
-            }
-            byte[] content = Files.readAllBytes(Path.of("public/admin.html"));
-            exchange.getResponseHeaders().add("Content-Type", "text/html");
-            exchange.sendResponseHeaders(200, content.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(content);
-            }
-        });
+        httpServer.createContext("/login", this::handleLogin);
+        httpServer.createContext("/logout", this::handleLogout);
+
+        httpServer.createContext("/status", exchange -> requireAuth(this::handleStatus).handle(exchange));
+        httpServer.createContext("/add", exchange -> requireAuth(this::handleAdd).handle(exchange));
+        httpServer.createContext("/remove", exchange -> requireAuth(this::handleRemove).handle(exchange));
+        httpServer.createContext("/start", exchange -> requireAuth(this::handleStartServer).handle(exchange));
+        httpServer.createContext("/stop", exchange -> requireAuth(this::handleStopServer).handle(exchange));
+
+        httpServer.createContext("/", this::handleDashboard);
 
         httpServer.setExecutor(null);
         httpServer.start();
         System.out.println("[WebAdmin] Management API running on http://localhost:7070");
     }
 
+    private HttpHandler requireAuth(HttpHandler handler) {
+        return exchange -> {
+            if (!isAuthenticated(exchange)) {
+                exchange.getResponseHeaders().add("Location", "/login");
+                exchange.sendResponseHeaders(302, -1);
+                return;
+            }
+            handler.handle(exchange);
+        };
+    }
+
     private boolean isAuthenticated(HttpExchange exchange) {
-        List<String> authHeaders = exchange.getRequestHeaders().get("Authorization");
-        if (authHeaders == null || authHeaders.isEmpty()) return false;
-
-        String auth = authHeaders.get(0);
-        if (!auth.startsWith("Basic ")) return false;
-
-        String base64Credentials = auth.substring("Basic ".length());
-        String credentials = new String(Base64.getDecoder().decode(base64Credentials));
-
-        return credentials.equals(USERNAME + ":" + PASSWORD);
+        List<String> cookies = exchange.getRequestHeaders().get("Cookie");
+        if (cookies != null) {
+            for (String cookie : cookies) {
+                for (String pair : cookie.split(";")) {
+                    String[] kv = pair.trim().split("=");
+                    if (kv.length == 2 && kv[0].equals(SESSION_COOKIE)) {
+                        return sessions.containsKey(kv[1]);
+                    }
+                }
+            }
+        }
+        return false;
     }
 
-    private void requireAuth(HttpExchange exchange) throws IOException {
-        exchange.getResponseHeaders().add("WWW-Authenticate", "Basic realm=\"LoadBalancer\"");
-        exchange.sendResponseHeaders(401, -1);
-    }
-
-    private void handleStatus(HttpExchange exchange) throws IOException {
-        if (!isAuthenticated(exchange)) {
-            requireAuth(exchange);
+    private void handleLogin(HttpExchange exchange) throws IOException {
+        if ("GET".equals(exchange.getRequestMethod())) {
+            byte[] html = Files.readAllBytes(Path.of("public/login.html"));
+            exchange.getResponseHeaders().add("Content-Type", "text/html");
+            exchange.sendResponseHeaders(200, html.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(html);
+            }
             return;
         }
 
+        if ("POST".equals(exchange.getRequestMethod())) {
+            String body;
+            try (Scanner scanner = new Scanner(exchange.getRequestBody()).useDelimiter("\\A")) {
+                body = scanner.hasNext() ? scanner.next() : "";
+            }
+
+            String[] parts = body.split("&");
+            String user = parts[0].split("=")[1];
+            String pass = parts[1].split("=")[1];
+
+            if (USERNAME.equals(user) && PASSWORD.equals(pass)) {
+                String sessionId = UUID.randomUUID().toString();
+                sessions.put(sessionId, user);
+                exchange.getResponseHeaders().add("Set-Cookie", SESSION_COOKIE + "=" + sessionId + "; Path=/");
+                exchange.getResponseHeaders().add("Location", "/");
+                exchange.sendResponseHeaders(302, -1);
+            } else {
+                exchange.sendResponseHeaders(403, -1);
+            }
+        }
+    }
+
+    private void handleDashboard(HttpExchange exchange) throws IOException {
+        if (!isAuthenticated(exchange)) {
+            exchange.getResponseHeaders().add("Location", "/login");
+            exchange.sendResponseHeaders(302, -1);
+            return;
+        }
+
+        byte[] content = Files.readAllBytes(Path.of("public/admin.html"));
+        exchange.getResponseHeaders().add("Content-Type", "text/html");
+        exchange.sendResponseHeaders(200, content.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(content);
+        }
+    }
+
+    private void handleStatus(HttpExchange exchange) throws IOException {
         if (!"GET".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
             return;
@@ -91,11 +140,6 @@ public class WebAdminServer {
     }
 
     private void handleAdd(HttpExchange exchange) throws IOException {
-        if (!isAuthenticated(exchange)) {
-            requireAuth(exchange);
-            return;
-        }
-
         if (!"POST".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
             return;
@@ -117,11 +161,6 @@ public class WebAdminServer {
     }
 
     private void handleRemove(HttpExchange exchange) throws IOException {
-        if (!isAuthenticated(exchange)) {
-            requireAuth(exchange);
-            return;
-        }
-
         if (!"POST".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
             return;
@@ -137,11 +176,6 @@ public class WebAdminServer {
     }
 
     private void handleStartServer(HttpExchange exchange) throws IOException {
-        if (!isAuthenticated(exchange)) {
-            requireAuth(exchange);
-            return;
-        }
-
         if (!"POST".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
             return;
@@ -177,11 +211,6 @@ public class WebAdminServer {
     }
 
     private void handleStopServer(HttpExchange exchange) throws IOException {
-        if (!isAuthenticated(exchange)) {
-            requireAuth(exchange);
-            return;
-        }
-
         if (!"POST".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
             return;
@@ -207,6 +236,26 @@ public class WebAdminServer {
 
         sendJson(exchange, "{\"status\":\"stopped\"}");
     }
+
+    private void handleLogout(HttpExchange exchange) throws IOException {
+        List<String> cookies = exchange.getRequestHeaders().get("Cookie");
+        if (cookies != null) {
+            for (String cookie : cookies) {
+                for (String pair : cookie.split(";")) {
+                    String[] kv = pair.trim().split("=");
+                    if (kv.length == 2 && kv[0].equals(SESSION_COOKIE)) {
+                        sessions.remove(kv[1]); // remove the session
+                    }
+                }
+            }
+        }
+    
+        // Clear the session cookie by setting expiry in the past
+        exchange.getResponseHeaders().add("Set-Cookie", SESSION_COOKIE + "=; Path=/; Max-Age=0");
+        exchange.getResponseHeaders().add("Location", "/login");
+        exchange.sendResponseHeaders(302, -1);
+    }
+    
 
     private void sendJson(HttpExchange exchange, String json) throws IOException {
         byte[] bytes = json.getBytes();
