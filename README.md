@@ -142,7 +142,6 @@ curl -X POST -d "localhost:9003" http://localhost:7070/stop
 
 - 🔒 Admin login
 - 📊 Request metrics + live charts
-- 🚩 Docker support
 - 🔍 Logging & analytics
 
 ---
